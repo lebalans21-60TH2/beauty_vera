@@ -75,7 +75,7 @@ export default function App() {
   const [cartOpen, setCartOpen] = useState(false);
   const [authModal, setAuthModal] = useState<{
     open: boolean;
-    tab: 'login' | 'register' | 'admin';
+    tab: 'login' | 'register';
   }>({ open: false, tab: 'login' });
   const [toast, setToast] = useState<string>('');
 
@@ -320,6 +320,19 @@ export default function App() {
       setView('account');
       showToast('Bạn có thể đăng ký mở gian hàng trong mục Hồ sơ & Tài khoản.');
     }
+  };
+
+  const handleAdminPortalEntry = () => {
+    if (!user) {
+      setAuthModal({ open: true, tab: 'login' });
+      showToast('Vui lòng đăng nhập bằng tài khoản có vai trò Quản trị sàn.');
+      return;
+    }
+    if (user.role === 'admin') {
+      setView('admin-portal');
+      return;
+    }
+    showToast('Tài khoản thường không có chức năng quản trị sàn.');
   };
 
   const handleLogout = () => {
@@ -1259,7 +1272,7 @@ export default function App() {
                   </button>
                   <button
                     type="button"
-                    onClick={() => setAuthModal({ open: true, tab: 'admin' })}
+                    onClick={handleAdminPortalEntry}
                     className="w-full py-3 px-5 border border-[#090D16] bg-white hover:bg-[#090D16] hover:text-white text-xs font-medium text-[#090D16] transition-colors text-center"
                   >
                     Truy cập Cổng Quản trị viên Sàn
@@ -1292,7 +1305,7 @@ export default function App() {
             </button>
             <button
               type="button"
-              onClick={() => setAuthModal({ open: true, tab: 'admin' })}
+              onClick={handleAdminPortalEntry}
               className="hover:text-white"
             >
               Quản trị viên

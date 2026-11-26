@@ -1,11 +1,11 @@
 import { useEffect, useState } from 'react';
-import { X, ShieldCheck, Lock } from 'lucide-react';
+import { X, ShieldCheck } from 'lucide-react';
 import { apiFetch } from '../lib/format';
 import type { User } from '../types/marketplace';
 
 interface AuthModalProps {
   open: boolean;
-  initialTab?: 'login' | 'register' | 'admin';
+  initialTab?: 'login' | 'register';
   onClose: () => void;
   onSuccess: (user: User, token: string) => void;
 }
@@ -16,7 +16,7 @@ export function AuthModal({
   onClose,
   onSuccess,
 }: AuthModalProps) {
-  const [tab, setTab] = useState<'login' | 'register' | 'admin'>(initialTab);
+  const [tab, setTab] = useState<'login' | 'register'>(initialTab);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [name, setName] = useState('');
@@ -25,20 +25,32 @@ export function AuthModal({
   const [address, setAddress] = useState('');
   const [openShop, setOpenShop] = useState(false);
   const [shopName, setShopName] = useState('');
-  const [adminPassword, setAdminPassword] = useState('');
+
+  // First-run admin initialization (shown only if no admin account exists yet)
   const [requiresAdminClaim, setRequiresAdminClaim] = useState(false);
+  const [showAdminSetup, setShowAdminSetup] = useState(false);
+  const [adminSetupName, setAdminSetupName] = useState('Quản trị viên Sàn');
+  const [adminSetupEmail, setAdminSetupEmail] = useState('admin@verabeauty.vn');
+  const [adminSetupPassword, setAdminSetupPassword] = useState('');
+
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
     setTab(initialTab);
     setError('');
+    setShowAdminSetup(false);
   }, [initialTab, open]);
 
   useEffect(() => {
-    if (open && tab === 'admin') {
-      apiFetch<{ requiresInitialClaim: boolean }>('/api/auth/admin/status')
-        .then((res) => setRequiresAdminClaim(res.requiresInitialClaim))
+    if (open && tab === 'login') {
+      apiFetch<{ requiresInitialClaim: boolean; defaultAdminEmail?: string }>('/api/auth/admin/status')
+        .then((res) => {
+          setRequiresAdminClaim(res.requiresInitialClaim);
+          if (res.defaultAdminEmail) {
+            setAdminSetupEmail(res.defaultAdminEmail);
+          }
+        })
         .catch(() => setRequiresAdminClaim(false));
     }
   }, [open, tab]);
@@ -81,20 +93,23 @@ export function AuthModal({
     }
   };
 
-  const handleAdminSubmit = async (e: React.FormEvent) => {
+  const handleInitialAdminClaim = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
     setLoading(true);
     try {
-      const endpoint = requiresAdminClaim ? '/api/auth/admin/claim' : '/api/auth/admin/login';
-      const res = await apiFetch<{ user: User; token: string }>(endpoint, {
+      const res = await apiFetch<{ user: User; token: string }>('/api/auth/admin/claim', {
         method: 'POST',
-        body: { password: adminPassword },
+        body: {
+          name: adminSetupName,
+          email: adminSetupEmail,
+          password: adminSetupPassword,
+        },
       });
       onSuccess(res.user, res.token);
       onClose();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Xác thực Quản trị viên thất bại.');
+      setError(err instanceof Error ? err.message : 'Khởi tạo Quản trị viên thất bại.');
     } finally {
       setLoading(false);
     }
@@ -123,7 +138,7 @@ export function AuthModal({
         </div>
 
         <div className="px-6 pt-4">
-          <div className="grid grid-cols-3 border border-[#CFD4DC] bg-[#F1F3F6]">
+          <div className="grid grid-cols-2 border border-[#CFD4DC] bg-[#F1F3F6]">
             <button
               type="button"
               onClick={() => {
@@ -142,23 +157,11 @@ export function AuthModal({
                 setTab('register');
                 setError('');
               }}
-              className={`py-2 text-xs font-medium transition-colors whitespace-nowrap border-x border-[#CFD4DC] ${
+              className={`py-2 text-xs font-medium transition-colors whitespace-nowrap border-l border-[#CFD4DC] ${
                 tab === 'register' ? 'bg-[#090D16] text-white' : 'text-zinc-600 hover:text-[#090D16]'
               }`}
             >
               Đăng ký
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setTab('admin');
-                setError('');
-              }}
-              className={`py-2 text-xs font-medium transition-colors whitespace-nowrap ${
-                tab === 'admin' ? 'bg-[#090D16] text-white' : 'text-zinc-600 hover:text-[#090D16]'
-              }`}
-            >
-              Quản trị sàn
             </button>
           </div>
         </div>
@@ -170,7 +173,7 @@ export function AuthModal({
             </div>
           )}
 
-          {tab === 'login' && (
+          {tab === 'login' && !showAdminSetup && (
             <form onSubmit={handleLogin} className="space-y-4">
               <div>
                 <label className="block text-xs font-medium text-[#090D16] mb-1">Email</label>
@@ -202,6 +205,10 @@ export function AuthModal({
                 {loading ? 'Đang xử lý...' : 'Đăng nhập'}
               </button>
 
+              <p className="text-[11px] text-zinc-500 leading-relaxed">
+                Đăng nhập chung bằng Email và Mật khẩu. Quyền Quản trị sàn sẽ tự động kích hoạt đối với tài khoản có vai trò Quản trị viên.
+              </p>
+
               <div className="pt-4 border-t border-[#CFD4DC] space-y-2">
                 <p className="text-xs text-zinc-500">Điền nhanh tài khoản trải nghiệm:</p>
                 <div className="grid grid-cols-2 gap-2">
@@ -226,6 +233,90 @@ export function AuthModal({
                     Nhà bán hàng mẫu
                   </button>
                 </div>
+              </div>
+
+              {requiresAdminClaim && (
+                <div className="pt-3 border-t border-dashed border-[#CFD4DC]">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowAdminSetup(true);
+                      setError('');
+                    }}
+                    className="w-full py-2 px-3 text-xs font-medium text-[#090D16] bg-[#F1F3F6] hover:bg-zinc-200 border border-[#CFD4DC] flex items-center justify-center gap-2 transition-colors"
+                  >
+                    <ShieldCheck className="w-3.5 h-3.5 text-[#C81E3A]" />
+                    <span>Khởi tạo tài khoản Quản trị sàn lần đầu</span>
+                  </button>
+                </div>
+              )}
+            </form>
+          )}
+
+          {tab === 'login' && showAdminSetup && (
+            <form onSubmit={handleInitialAdminClaim} className="space-y-4">
+              <div className="p-3.5 bg-[#F1F3F6] border border-[#CFD4DC] text-xs text-zinc-600 space-y-1">
+                <div className="flex items-center gap-2 font-medium text-[#090D16]">
+                  <ShieldCheck className="w-4 h-4 text-[#C81E3A]" />
+                  <span>Thiết lập tài khoản Quản trị sàn lần đầu</span>
+                </div>
+                <p>
+                  Sau khi khởi tạo, bạn đăng nhập Quản trị sàn bằng Email và Mật khẩu giống như tài khoản khách hàng thông thường.
+                </p>
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-[#090D16] mb-1">Tên hiển thị</label>
+                <input
+                  type="text"
+                  required
+                  value={adminSetupName}
+                  onChange={(e) => setAdminSetupName(e.target.value)}
+                  className="w-full px-3.5 py-2 text-sm border border-[#CFD4DC] focus:outline-none focus:border-[#090D16]"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-[#090D16] mb-1">Email Quản trị viên</label>
+                <input
+                  type="email"
+                  required
+                  value={adminSetupEmail}
+                  onChange={(e) => setAdminSetupEmail(e.target.value)}
+                  placeholder="admin@verabeauty.vn"
+                  className="w-full px-3.5 py-2 text-sm border border-[#CFD4DC] focus:outline-none focus:border-[#090D16]"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-[#090D16] mb-1">Mật khẩu Quản trị viên</label>
+                <input
+                  type="password"
+                  required
+                  minLength={6}
+                  value={adminSetupPassword}
+                  onChange={(e) => setAdminSetupPassword(e.target.value)}
+                  placeholder="Tối thiểu 6 ký tự"
+                  className="w-full px-3.5 py-2 text-sm border border-[#CFD4DC] focus:outline-none focus:border-[#090D16]"
+                />
+              </div>
+
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowAdminSetup(false);
+                    setError('');
+                  }}
+                  className="px-4 py-2.5 text-xs font-medium border border-[#CFD4DC] text-[#090D16] hover:bg-[#F1F3F6]"
+                >
+                  Quay lại
+                </button>
+                <button
+                  type="submit"
+                  disabled={loading}
+                  className="flex-1 py-2.5 px-4 bg-[#090D16] hover:bg-black text-white text-sm font-medium transition-colors disabled:opacity-60"
+                >
+                  {loading ? 'Đang khởi tạo...' : 'Tạo tài khoản Quản trị'}
+                </button>
               </div>
             </form>
           )}
@@ -337,58 +428,6 @@ export function AuthModal({
                 className="w-full py-2.5 px-4 bg-[#C81E3A] hover:bg-[#A61730] text-white text-sm font-medium transition-colors disabled:opacity-60"
               >
                 {loading ? 'Đang tạo tài khoản...' : 'Tạo tài khoản'}
-              </button>
-            </form>
-          )}
-
-          {tab === 'admin' && (
-            <form onSubmit={handleAdminSubmit} className="space-y-4">
-              <div className="p-3.5 bg-[#F1F3F6] border border-[#CFD4DC] text-xs text-zinc-600 space-y-1.5">
-                <div className="flex items-center gap-2 font-medium text-[#090D16]">
-                  {requiresAdminClaim ? (
-                    <>
-                      <ShieldCheck className="w-4 h-4 text-[#C81E3A]" />
-                      <span>Thiết lập Quản trị viên lần đầu</span>
-                    </>
-                  ) : (
-                    <>
-                      <Lock className="w-4 h-4 text-[#C81E3A]" />
-                      <span>Đăng nhập Quản trị viên Sàn</span>
-                    </>
-                  )}
-                </div>
-                <p>
-                  {requiresAdminClaim
-                    ? 'Hệ thống chưa thiết lập mật khẩu Quản trị viên. Tạo mật khẩu bảo mật ngay để tiếp quản bảng điều khiển vận hành sàn.'
-                    : 'Nhập mật khẩu Quản trị viên đã thiết lập (hoặc biến môi trường ADMIN_PASSCODE) để truy cập kiểm duyệt và báo cáo.'}
-                </p>
-              </div>
-
-              <div>
-                <label className="block text-xs font-medium text-[#090D16] mb-1">
-                  {requiresAdminClaim ? 'Đặt mật khẩu Quản trị viên' : 'Mật khẩu Quản trị viên'}
-                </label>
-                <input
-                  type="password"
-                  required
-                  minLength={6}
-                  value={adminPassword}
-                  onChange={(e) => setAdminPassword(e.target.value)}
-                  placeholder="Tối thiểu 6 ký tự"
-                  className="w-full px-3.5 py-2.5 text-sm border border-[#CFD4DC] focus:outline-none focus:border-[#090D16]"
-                />
-              </div>
-
-              <button
-                type="submit"
-                disabled={loading}
-                className="w-full py-2.5 px-4 bg-[#090D16] hover:bg-black text-white text-sm font-medium transition-colors disabled:opacity-60"
-              >
-                {loading
-                  ? 'Đang xác thực...'
-                  : requiresAdminClaim
-                    ? 'Thiết lập & Truy cập Quản trị'
-                    : 'Đăng nhập Quản trị viên'}
               </button>
             </form>
           )}

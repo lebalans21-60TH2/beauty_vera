@@ -263,111 +263,145 @@ async function startServer() {
     res.status(201).json({ token, user: stripPassword(newUser) });
   });
 
-  app.post('/api/auth/login', (req, res) => {
+  app.post('/api/auth/login', async (req, res) => {
     const email = sanitizeString(req.body.email, 120).toLowerCase();
     const password = typeof req.body.password === 'string' ? req.body.password : '';
 
-    const db = store.getState();
-    const user = db.users.find((u) => u.email.toLowerCase() === email);
-    if (!user || !verifyPassword(password, user.passwordHash)) {
-      res.status(401).json({ error: 'Email hoặc mật khẩu không chính xác.' });
-      return;
-    }
-    if (user.status === 'locked') {
-      res.status(403).json({ error: 'Tài khoản đã bị quản trị viên khóa.' });
+    if (!email || !password) {
+      res.status(400).json({ error: 'Vui lòng nhập đầy đủ email và mật khẩu.' });
       return;
     }
 
-    const token = signAuthToken(user.id, user.role);
-    res.json({ token, user: stripPassword(user) });
+    const db = store.getState();
+    const envAdminEmail = (process.env.ADMIN_EMAIL?.trim() || 'admin@verabeauty.vn').toLowerCase();
+    const envPasscode = process.env.ADMIN_PASSCODE?.trim();
+    const matchesEnvPasscode = (candidate: string): boolean => {
+      if (!envPasscode) return false;
+      const a = Buffer.from(candidate, 'utf8');
+      const b = Buffer.from(envPasscode, 'utf8');
+      return a.length === b.length && crypto.timingSafeEqual(a, b);
+    };
+
+    let user = db.users.find((u) => u.email.toLowerCase() === email);
+
+    if (user) {
+      const validPassword =
+        verifyPassword(password, user.passwordHash) ||
+        (user.role === 'admin' && email === envAdminEmail && matchesEnvPasscode(password));
+
+      if (!validPassword) {
+        res.status(401).json({ error: 'Email hoặc mật khẩu không chính xác.' });
+        return;
+      }
+      if (user.status === 'locked') {
+        res.status(403).json({ error: 'Tài khoản đã bị quản trị viên khóa.' });
+        return;
+      }
+
+      const token = signAuthToken(user.id, user.role);
+      res.json({ token, user: stripPassword(user) });
+      return;
+    }
+
+    // Migrate or authenticate environment-configured / previously-claimed admin via standard email+password login
+    const envAuthorized = email === envAdminEmail && matchesEnvPasscode(password);
+    const legacyClaimAuthorized =
+      email === 'admin@verabeauty.vn' &&
+      Boolean(db.adminPassHash) &&
+      verifyPassword(password, db.adminPassHash!);
+
+    if (envAuthorized || legacyClaimAuthorized) {
+      const adminUser: StoredUser = {
+        id: 'usr-admin-1',
+        name: 'Quản trị viên Sàn',
+        email,
+        phone: '',
+        skinType: 'Mọi loại da',
+        address: '',
+        role: 'admin',
+        status: 'active',
+        passwordHash: hashPassword(password),
+        createdAt: new Date().toISOString(),
+      };
+      db.users.push(adminUser);
+      await store.persist();
+      const token = signAuthToken(adminUser.id, adminUser.role);
+      res.json({ token, user: stripPassword(adminUser) });
+      return;
+    }
+
+    res.status(401).json({ error: 'Email hoặc mật khẩu không chính xác.' });
   });
 
   app.get('/api/auth/admin/status', (_req, res) => {
     const db = store.getState();
     const hasEnvPasscode = Boolean(process.env.ADMIN_PASSCODE?.trim());
     const hasClaimedHash = Boolean(db.adminPassHash);
+    const hasAdminUser = db.users.some((u) => u.role === 'admin');
+    const defaultAdminEmail = (process.env.ADMIN_EMAIL?.trim() || 'admin@verabeauty.vn').toLowerCase();
     res.json({
-      requiresInitialClaim: !hasEnvPasscode && !hasClaimedHash,
-      envConfigured: hasEnvPasscode,
+      requiresInitialClaim: !hasEnvPasscode && !hasClaimedHash && !hasAdminUser,
+      defaultAdminEmail,
     });
   });
 
   app.post('/api/auth/admin/claim', async (req, res) => {
     const db = store.getState();
     const hasEnvPasscode = Boolean(process.env.ADMIN_PASSCODE?.trim());
-    if (hasEnvPasscode || db.adminPassHash) {
+    const hasAdminUser = db.users.some((u) => u.role === 'admin');
+    if (hasEnvPasscode || db.adminPassHash || hasAdminUser) {
       res.status(403).json({ error: 'Tài khoản Quản trị viên đã được thiết lập trước đó.' });
       return;
     }
+
+    const name = sanitizeString(req.body.name, 100) || 'Quản trị viên Sàn';
+    const email = sanitizeString(req.body.email, 120).toLowerCase() || 'admin@verabeauty.vn';
     const password = typeof req.body.password === 'string' ? req.body.password : '';
+
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      res.status(400).json({ error: 'Email Quản trị viên không hợp lệ.' });
+      return;
+    }
     if (password.length < 6) {
       res.status(400).json({ error: 'Mật khẩu Quản trị viên phải có ít nhất 6 ký tự.' });
       return;
     }
+    if (db.users.some((u) => u.email.toLowerCase() === email)) {
+      res.status(409).json({ error: 'Email này đã được sử dụng cho một tài khoản khác.' });
+      return;
+    }
 
-    db.adminPassHash = hashPassword(password);
+    const adminHash = hashPassword(password);
+    const adminUser: StoredUser = {
+      id: `usr-admin-${Date.now()}`,
+      name,
+      email,
+      phone: '',
+      skinType: 'Mọi loại da',
+      address: '',
+      role: 'admin',
+      status: 'active',
+      passwordHash: adminHash,
+      createdAt: new Date().toISOString(),
+    };
+    db.users.push(adminUser);
+    db.adminPassHash = adminHash;
+
     appendAuditLog(db, {
-      actorId: 'admin-root',
-      actorName: 'Quản trị viên Sàn',
+      actorId: adminUser.id,
+      actorName: adminUser.name,
       actorRole: 'admin',
       action: 'ADMIN_CLAIM',
-      targetType: 'system',
-      targetId: 'admin-root',
-      summary: 'Thiết lập mật khẩu Quản trị viên lần đầu thành công.',
+      targetType: 'user',
+      targetId: adminUser.id,
+      summary: `Thiết lập tài khoản Quản trị sàn lần đầu (${adminUser.email}).`,
     });
     await store.persist();
 
-    const token = signAuthToken('admin-root', 'admin');
-    res.json({
+    const token = signAuthToken(adminUser.id, adminUser.role);
+    res.status(201).json({
       token,
-      user: {
-        id: 'admin-root',
-        name: 'Quản trị viên Sàn',
-        email: 'admin@verabeauty.vn',
-        phone: '',
-        role: 'admin' as const,
-        status: 'active' as const,
-        createdAt: new Date().toISOString(),
-      },
-    });
-  });
-
-  app.post('/api/auth/admin/login', (req, res) => {
-    const password = typeof req.body.password === 'string' ? req.body.password : '';
-    const envPasscode = process.env.ADMIN_PASSCODE?.trim();
-    const db = store.getState();
-
-    let authorized = false;
-    if (envPasscode) {
-      const a = Buffer.from(password, 'utf8');
-      const b = Buffer.from(envPasscode, 'utf8');
-      if (a.length === b.length && crypto.timingSafeEqual(a, b)) {
-        authorized = true;
-      }
-    } else if (db.adminPassHash) {
-      authorized = verifyPassword(password, db.adminPassHash);
-    } else {
-      res.status(400).json({ error: 'Chưa thiết lập mật khẩu Quản trị viên.' });
-      return;
-    }
-
-    if (!authorized) {
-      res.status(401).json({ error: 'Mật khẩu Quản trị viên không chính xác.' });
-      return;
-    }
-
-    const token = signAuthToken('admin-root', 'admin');
-    res.json({
-      token,
-      user: {
-        id: 'admin-root',
-        name: 'Quản trị viên Sàn',
-        email: 'admin@verabeauty.vn',
-        phone: '',
-        role: 'admin' as const,
-        status: 'active' as const,
-        createdAt: new Date().toISOString(),
-      },
+      user: stripPassword(adminUser),
     });
   });
 
@@ -1380,6 +1414,10 @@ async function startServer() {
     const user = db.users.find((u) => u.id === req.params.id);
     if (!user) {
       res.status(404).json({ error: 'Không tìm thấy tài khoản.' });
+      return;
+    }
+    if (user.id === req.authUser!.id || user.role === 'admin') {
+      res.status(400).json({ error: 'Không thể khóa tài khoản Quản trị viên sàn.' });
       return;
     }
     const status = req.body.status === 'locked' ? 'locked' : 'active';

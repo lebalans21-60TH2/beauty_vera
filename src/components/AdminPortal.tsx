@@ -1051,23 +1051,29 @@ export function AdminPortal({ token }: AdminPortalProps) {
                           </span>
                         </td>
                         <td className="py-3 px-4 text-right">
-                          <button
-                            type="button"
-                            onClick={() =>
-                              runAction(
-                                () =>
-                                  apiFetch(`/api/admin/users/${u.id}/status`, {
-                                    method: 'PATCH',
-                                    token,
-                                    body: { status: u.status === 'active' ? 'locked' : 'active' },
-                                  }).then(() => undefined),
-                                `Đã ${u.status === 'active' ? 'khóa' : 'mở khóa'} tài khoản ${u.email}.`
-                              )
-                            }
-                            className="px-2.5 py-1 border border-zinc-200 rounded-md"
-                          >
-                            {u.status === 'active' ? 'Khóa' : 'Mở khóa'}
-                          </button>
+                          {u.role === 'admin' ? (
+                            <span className="px-2.5 py-1 text-[11px] font-mono text-[#6B665E] border border-zinc-200 rounded-md inline-block">
+                              Quản trị sàn
+                            </span>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() =>
+                                runAction(
+                                  () =>
+                                    apiFetch(`/api/admin/users/${u.id}/status`, {
+                                      method: 'PATCH',
+                                      token,
+                                      body: { status: u.status === 'active' ? 'locked' : 'active' },
+                                    }).then(() => undefined),
+                                  `Đã ${u.status === 'active' ? 'khóa' : 'mở khóa'} tài khoản ${u.email}.`
+                                )
+                              }
+                              className="px-2.5 py-1 border border-zinc-200 rounded-md"
+                            >
+                              {u.status === 'active' ? 'Khóa' : 'Mở khóa'}
+                            </button>
+                          )}
                         </td>
                       </tr>
                     ))}
