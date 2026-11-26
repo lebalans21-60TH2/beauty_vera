@@ -1,0 +1,6 @@
+{
+  "name": "Véra Beauty",
+  "description": "Sàn thương mại điện tử đa nhà bán hàng chuyên về mỹ phẩm và sản phẩm chăm sóc cá nhân, tích hợp quản lý kho theo lô FEFO, kiểm duyệt chứng từ minh bạch và đối soát doanh thu.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
