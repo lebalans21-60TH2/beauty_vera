@@ -38,10 +38,25 @@ import type {
 
 type AppView = 'storefront' | 'vendors' | 'account' | 'vendor-portal' | 'admin-portal';
 
+function getInitialViewFromHash(): AppView {
+  if (typeof window === 'undefined') return 'storefront';
+  const raw = window.location.hash.replace(/^#\/?/, '');
+  if (
+    raw === 'vendors' ||
+    raw === 'account' ||
+    raw === 'vendor-portal' ||
+    raw === 'admin-portal'
+  ) {
+    return raw;
+  }
+  return 'storefront';
+}
+
 export default function App() {
-  const [view, setView] = useState<AppView>('storefront');
+  const [view, setView] = useState<AppView>(getInitialViewFromHash);
   const [user, setUser] = useState<User | null>(null);
   const [token, setToken] = useState<string | null>(null);
+  const [restoringSession, setRestoringSession] = useState(true);
 
   // Catalog state
   const [products, setProducts] = useState<EnrichedProduct[]>([]);
@@ -100,7 +115,35 @@ export default function App() {
 
   useEffect(() => {
     loadCatalog();
+    apiFetch<{ user: User; token: string }>('/api/auth/me')
+      .then((res) => {
+        setUser(res.user);
+        setToken(res.token);
+        setView((prev) => {
+          if (prev === 'admin-portal' && res.user.role !== 'admin') return 'storefront';
+          if (prev === 'vendor-portal' && res.user.role !== 'vendor') return 'storefront';
+          return prev;
+        });
+      })
+      .catch(() => {
+        setView((prev) =>
+          prev === 'account' || prev === 'vendor-portal' || prev === 'admin-portal'
+            ? 'storefront'
+            : prev
+        );
+      })
+      .finally(() => {
+        setRestoringSession(false);
+      });
   }, []);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const nextHash = `#/${view}`;
+    if (window.location.hash !== nextHash) {
+      window.history.replaceState(null, '', nextHash);
+    }
+  }, [view]);
 
   const showToast = (msg: string) => {
     setToast(msg);
@@ -335,7 +378,12 @@ export default function App() {
     showToast('Tài khoản thường không có chức năng quản trị sàn.');
   };
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    try {
+      await apiFetch('/api/auth/logout', { method: 'POST', token });
+    } catch {
+      // Ignore network error during logout cleanup
+    }
     setUser(null);
     setToken(null);
     setView('storefront');
@@ -468,6 +516,13 @@ export default function App() {
 
       {/* Main Content Router */}
       <div className="flex-1">
+        {restoringSession &&
+          (view === 'vendor-portal' || view === 'admin-portal' || view === 'account') && (
+            <div className="max-w-[1440px] mx-auto px-6 py-20 text-center text-sm text-zinc-500">
+              Đang khôi phục phiên đăng nhập...
+            </div>
+          )}
+
         {view === 'vendor-portal' && user?.role === 'vendor' && token && (
           <VendorPortal token={token} />
         )}

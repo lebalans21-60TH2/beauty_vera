@@ -65,6 +65,7 @@ export async function apiFetch<T>(
 ): Promise<T> {
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
+    'X-Requested-With': 'XMLHttpRequest',
   };
   if (options.token) {
     headers.Authorization = `Bearer ${options.token}`;
@@ -72,6 +73,7 @@ export async function apiFetch<T>(
   const res = await fetch(url, {
     method: options.method ?? 'GET',
     headers,
+    credentials: 'include',
     body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
   });
   const data = (await res.json().catch(() => ({}))) as T & { error?: string };

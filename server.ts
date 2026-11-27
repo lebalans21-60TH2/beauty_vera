@@ -73,16 +73,94 @@ function configureCloudinary(): boolean {
 }
 
 const UPLOADS_DIR = path.resolve(process.cwd(), 'uploads');
+const SESSION_COOKIE_NAME = 'vera_session';
+const SESSION_MAX_AGE_SEC = 24 * 60 * 60;
+
+function parseCookies(cookieHeader: string | undefined): Record<string, string> {
+  const cookies: Record<string, string> = {};
+  if (!cookieHeader) return cookies;
+  for (const part of cookieHeader.split(';')) {
+    const idx = part.indexOf('=');
+    if (idx <= 0) continue;
+    const key = part.slice(0, idx).trim();
+    const val = part.slice(idx + 1).trim();
+    if (key) {
+      try {
+        cookies[key] = decodeURIComponent(val);
+      } catch {
+        cookies[key] = val;
+      }
+    }
+  }
+  return cookies;
+}
+
+function setSessionCookie(res: Response, token: string): void {
+  res.setHeader(
+    'Set-Cookie',
+    `${SESSION_COOKIE_NAME}=${encodeURIComponent(token)}; Path=/; Max-Age=${SESSION_MAX_AGE_SEC}; HttpOnly; Secure; SameSite=None; Partitioned`
+  );
+}
+
+function clearSessionCookie(res: Response): void {
+  res.setHeader(
+    'Set-Cookie',
+    `${SESSION_COOKIE_NAME}=; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=None; Partitioned`
+  );
+}
+
+function hasValidCookieRequestOrigin(req: Request): boolean {
+  if (req.headers['x-requested-with'] === 'XMLHttpRequest') {
+    return true;
+  }
+  const originHeader = typeof req.headers.origin === 'string' ? req.headers.origin : '';
+  const forwardedHost =
+    typeof req.headers['x-forwarded-host'] === 'string'
+      ? req.headers['x-forwarded-host'].split(',')[0].trim()
+      : '';
+  const hostHeader = forwardedHost || (typeof req.headers.host === 'string' ? req.headers.host : '');
+  if (!originHeader || !hostHeader) return false;
+  try {
+    return new URL(originHeader).host === hostHeader;
+  } catch {
+    return false;
+  }
+}
 
 function authenticate(req: AuthedRequest, res: Response, next: NextFunction): void {
   const authHeader = req.headers.authorization;
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+  let token = '';
+  let usedCookieAuth = false;
+
+  if (authHeader && authHeader.startsWith('Bearer ')) {
+    token = authHeader.slice(7).trim();
+  } else {
+    const cookies = parseCookies(req.headers.cookie);
+    if (cookies[SESSION_COOKIE_NAME]) {
+      token = cookies[SESSION_COOKIE_NAME];
+      usedCookieAuth = true;
+    }
+  }
+
+  if (!token) {
     res.status(401).json({ error: 'Vui lòng đăng nhập để thực hiện thao tác này.' });
     return;
   }
-  const token = authHeader.slice(7).trim();
+
+  if (
+    usedCookieAuth &&
+    ['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method.toUpperCase()) &&
+    !hasValidCookieRequestOrigin(req)
+  ) {
+    res.status(403).json({ error: 'Yêu cầu không hợp lệ (kiểm tra nguồn gốc phiên).' });
+    return;
+  }
+
   const payload = verifyAuthToken(token);
   if (!payload) {
+    if (usedCookieAuth) {
+      clearSessionCookie(res);
+    }
     res.status(401).json({ error: 'Phiên đăng nhập không hợp lệ hoặc đã hết hạn.' });
     return;
   }
@@ -101,10 +179,16 @@ function authenticate(req: AuthedRequest, res: Response, next: NextFunction): vo
   const db = store.getState();
   const user = db.users.find((u) => u.id === payload.userId);
   if (!user) {
+    if (usedCookieAuth) {
+      clearSessionCookie(res);
+    }
     res.status(401).json({ error: 'Tài khoản không tồn tại.' });
     return;
   }
   if (user.status === 'locked') {
+    if (usedCookieAuth) {
+      clearSessionCookie(res);
+    }
     res.status(403).json({ error: 'Tài khoản của bạn hiện đang bị khóa.' });
     return;
   }
@@ -260,6 +344,7 @@ async function startServer() {
 
     await store.persist();
     const token = signAuthToken(newUser.id, newUser.role);
+    setSessionCookie(res, token);
     res.status(201).json({ token, user: stripPassword(newUser) });
   });
 
@@ -299,6 +384,7 @@ async function startServer() {
       }
 
       const token = signAuthToken(user.id, user.role);
+      setSessionCookie(res, token);
       res.json({ token, user: stripPassword(user) });
       return;
     }
@@ -326,6 +412,7 @@ async function startServer() {
       db.users.push(adminUser);
       await store.persist();
       const token = signAuthToken(adminUser.id, adminUser.role);
+      setSessionCookie(res, token);
       res.json({ token, user: stripPassword(adminUser) });
       return;
     }
@@ -399,10 +486,20 @@ async function startServer() {
     await store.persist();
 
     const token = signAuthToken(adminUser.id, adminUser.role);
+    setSessionCookie(res, token);
     res.status(201).json({
       token,
       user: stripPassword(adminUser),
     });
+  });
+
+  app.post('/api/auth/logout', (req, res) => {
+    if (!hasValidCookieRequestOrigin(req)) {
+      res.status(403).json({ error: 'Yêu cầu đăng xuất không hợp lệ.' });
+      return;
+    }
+    clearSessionCookie(res);
+    res.json({ ok: true });
   });
 
   app.get('/api/auth/me', authenticate, (req: AuthedRequest, res) => {
@@ -410,8 +507,10 @@ async function startServer() {
       res.status(401).json({ error: 'Chưa đăng nhập.' });
       return;
     }
+    const freshToken = signAuthToken(req.authUser.id, req.authUser.role);
     if (req.authUser.role === 'admin' && req.authUser.id === 'admin-root') {
       res.json({
+        token: freshToken,
         user: {
           id: 'admin-root',
           name: 'Quản trị viên Sàn',
@@ -430,7 +529,7 @@ async function startServer() {
       res.status(404).json({ error: 'Không tìm thấy người dùng.' });
       return;
     }
-    res.json({ user: stripPassword(user) });
+    res.json({ token: freshToken, user: stripPassword(user) });
   });
 
   app.patch('/api/auth/profile', authenticate, async (req: AuthedRequest, res) => {
@@ -859,6 +958,7 @@ async function startServer() {
 
     await store.persist();
     const token = signAuthToken(req.authUser!.id, 'vendor');
+    setSessionCookie(res, token);
     res.status(201).json({ vendor, token });
   });
 
