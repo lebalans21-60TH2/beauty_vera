@@ -1091,9 +1091,17 @@ async function startServer() {
       return;
     }
 
-    const images = Array.isArray(req.body.images)
-      ? req.body.images.map((u: unknown) => safeMediaUrl(u)).filter(Boolean)
+    const rawImageInputs: string[] = Array.isArray(req.body.images)
+      ? req.body.images.filter((u: unknown): u is string => typeof u === 'string' && u.trim().length > 0)
       : [];
+    const images: string[] = Array.from(
+      new Set<string>(rawImageInputs.map((u: string) => safeMediaUrl(u)).filter(Boolean))
+    ).slice(0, 10);
+
+    if (rawImageInputs.length > 0 && images.length === 0) {
+      res.status(400).json({ error: 'Link hình ảnh sản phẩm không hợp lệ (chỉ hỗ trợ URL http/https hoặc ảnh tải lên).' });
+      return;
+    }
     if (images.length === 0) {
       images.push('/src/assets/images/product_serum_niacinamide_1795521823722.jpg');
     }
@@ -1182,7 +1190,11 @@ async function startServer() {
         .filter((v: { sku: string; name: string; price: number }) => v.sku && v.name && v.price > 0);
     }
     if (Array.isArray(req.body.images)) {
-      const valid = req.body.images.map((u: unknown) => safeMediaUrl(u)).filter(Boolean);
+      const valid: string[] = Array.from(
+        new Set<string>(
+          (req.body.images as unknown[]).map((u: unknown) => safeMediaUrl(u)).filter(Boolean)
+        )
+      ).slice(0, 10);
       if (valid.length > 0) product.images = valid;
     }
     if (req.body.resubmitForReview) {

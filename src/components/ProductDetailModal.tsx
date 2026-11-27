@@ -268,6 +268,7 @@ export function ProductDetailModal({
   const [reviews, setReviews] = useState<Review[]>([]);
   const [selectedSku, setSelectedSku] = useState<string>('');
   const [qty, setQty] = useState(1);
+  const [activeImageIndex, setActiveImageIndex] = useState(0);
   const [previewDoc, setPreviewDoc] = useState<ProductDocument | null>(null);
   const [selectedRatingFilter, setSelectedRatingFilter] = useState<number | null>(null);
   const [detailSearchQuery, setDetailSearchQuery] = useState('');
@@ -278,6 +279,7 @@ export function ProductDetailModal({
     if (!productId) return;
     setLoading(true);
     setQty(1);
+    setActiveImageIndex(0);
     setPreviewDoc(null);
     setSelectedRatingFilter(null);
     setDetailSearchQuery('');
@@ -444,7 +446,7 @@ export function ProductDetailModal({
                 <div className="lg:col-span-5 space-y-4">
                   <div className="aspect-[4/3] bg-white border border-[#CFD4DC] overflow-hidden">
                     <ResilientImage
-                      src={product.images[0]}
+                      src={product.images[activeImageIndex] ?? product.images[0]}
                       alt={product.name}
                       className="w-full h-full object-cover"
                     />
@@ -452,16 +454,23 @@ export function ProductDetailModal({
                   {product.images.length > 1 && (
                     <div className="grid grid-cols-4 gap-3">
                       {product.images.map((img, i) => (
-                        <div
-                          key={i}
-                          className="aspect-square bg-white border border-[#CFD4DC] overflow-hidden"
+                        <button
+                          key={`${img}-${i}`}
+                          type="button"
+                          onClick={() => setActiveImageIndex(i)}
+                          className={`aspect-square bg-white border overflow-hidden transition-colors ${
+                            activeImageIndex === i
+                              ? 'border-[#C81E3A] ring-1 ring-[#C81E3A]'
+                              : 'border-[#CFD4DC] hover:border-[#090D16]'
+                          }`}
+                          aria-label={`Xem ảnh ${i + 1}`}
                         >
                           <ResilientImage
                             src={img}
                             alt={`${product.name} ${i + 1}`}
                             className="w-full h-full object-cover"
                           />
-                        </div>
+                        </button>
                       ))}
                     </div>
                   )}

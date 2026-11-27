@@ -6,12 +6,16 @@ import {
   CheckCircle2,
   ClipboardList,
   FileText,
+  ImagePlus,
+  Link2,
   Lock,
   PackagePlus,
   Plus,
+  Star,
   Store,
   Trash2,
   Upload,
+  X,
 } from 'lucide-react';
 import {
   BATCH_STATUS_META,
@@ -95,7 +99,11 @@ export function VendorPortal({ token }: VendorPortalProps) {
   const [pVariantName, setPVariantName] = useState('30ml');
   const [pPrice, setPPrice] = useState(450000);
   const [pPromoPrice, setPPromoPrice] = useState<string>('');
-  const [pImageUrl, setPImageUrl] = useState('/src/assets/images/product_serum_niacinamide_1795521823722.jpg');
+  const [pImages, setPImages] = useState<string[]>([
+    '/src/assets/images/product_serum_niacinamide_1795521823722.jpg',
+  ]);
+  const [pImageLinkInput, setPImageLinkInput] = useState('');
+  const [pImageError, setPImageError] = useState('');
   const [pVideoUrl, setPVideoUrl] = useState('');
   const [pSponsored, setPSponsored] = useState(false);
 
@@ -142,6 +150,65 @@ export function VendorPortal({ token }: VendorPortalProps) {
     loadDashboard();
   }, [token]);
 
+  const isValidImageUrlInput = (raw: string): boolean => {
+    const trimmed = raw.trim();
+    if (!trimmed) return false;
+    if (trimmed.startsWith('/src/assets/') || trimmed.startsWith('/uploads/')) {
+      return true;
+    }
+    try {
+      const parsed = new URL(trimmed);
+      return parsed.protocol === 'https:' || parsed.protocol === 'http:';
+    } catch {
+      return false;
+    }
+  };
+
+  const handleAddProductImageLink = () => {
+    setPImageError('');
+    const candidates = pImageLinkInput
+      .split(/[\n,]+/)
+      .map((item) => item.trim())
+      .filter(Boolean);
+
+    if (candidates.length === 0) {
+      setPImageError('Vui lòng nhập đường dẫn (URL) hình ảnh hợp lệ.');
+      return;
+    }
+
+    const invalid = candidates.filter((url) => !isValidImageUrlInput(url));
+    if (invalid.length > 0) {
+      setPImageError('Link ảnh phải bắt đầu bằng https://, http:// hoặc đường dẫn ảnh hợp lệ.');
+      return;
+    }
+
+    const merged = [...pImages];
+    for (const url of candidates) {
+      if (!merged.includes(url) && merged.length < 10) {
+        merged.push(url);
+      }
+    }
+    if (merged.length >= 10 && candidates.some((url) => !pImages.includes(url) && !merged.includes(url))) {
+      setPImageError('Tối đa 10 hình ảnh cho mỗi sản phẩm.');
+    }
+    setPImages(merged);
+    setPImageLinkInput('');
+  };
+
+  const handleRemoveProductImage = (index: number) => {
+    setPImageError('');
+    setPImages((prev) => prev.filter((_, idx) => idx !== index));
+  };
+
+  const handleSetPrimaryProductImage = (index: number) => {
+    if (index <= 0) return;
+    setPImages((prev) => {
+      const target = prev[index];
+      if (!target) return prev;
+      return [target, ...prev.filter((_, idx) => idx !== index)];
+    });
+  };
+
   const handleImageFileUpload = async (
     file: File,
     onUrl: (url: string) => void
@@ -162,6 +229,42 @@ export function VendorPortal({ token }: VendorPortalProps) {
       }
     };
     reader.readAsDataURL(file);
+  };
+
+  const handleMultipleProductImageUpload = async (files: FileList | null) => {
+    if (!files || files.length === 0) return;
+    setPImageError('');
+    setError('');
+    const fileArray = Array.from(files).slice(0, Math.max(0, 10 - pImages.length));
+    if (fileArray.length === 0) {
+      setPImageError('Đã đạt giới hạn tối đa 10 hình ảnh cho mỗi sản phẩm.');
+      return;
+    }
+
+    for (const file of fileArray) {
+      await new Promise<void>((resolve) => {
+        const reader = new FileReader();
+        reader.onload = async () => {
+          try {
+            const res = await apiFetch<{ url: string }>('/api/upload', {
+              method: 'POST',
+              token,
+              body: { dataUrl: reader.result },
+            });
+            setPImages((prev) =>
+              prev.includes(res.url) || prev.length >= 10 ? prev : [...prev, res.url]
+            );
+          } catch (err) {
+            setError(err instanceof Error ? err.message : 'Lỗi tải ảnh lên.');
+          } finally {
+            resolve();
+          }
+        };
+        reader.onerror = () => resolve();
+        reader.readAsDataURL(file);
+      });
+    }
+    setNotice(`Đã tải lên ${fileArray.length} hình ảnh sản phẩm.`);
   };
 
   const handleInboundBatch = async (e: React.FormEvent) => {
@@ -239,6 +342,32 @@ export function VendorPortal({ token }: VendorPortalProps) {
   const handleCreateProduct = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
+    setPImageError('');
+
+    const finalImages = [...pImages];
+    const pendingLink = pImageLinkInput.trim();
+    if (pendingLink) {
+      const pendingCandidates = pendingLink
+        .split(/[\n,]+/)
+        .map((item) => item.trim())
+        .filter(Boolean);
+      const invalid = pendingCandidates.filter((url) => !isValidImageUrlInput(url));
+      if (invalid.length > 0) {
+        setPImageError('Link ảnh chưa hợp lệ. Vui lòng dùng URL http:// hoặc https://.');
+        return;
+      }
+      for (const url of pendingCandidates) {
+        if (!finalImages.includes(url) && finalImages.length < 10) {
+          finalImages.push(url);
+        }
+      }
+    }
+
+    if (finalImages.length === 0) {
+      setPImageError('Vui lòng thêm ít nhất 1 hình ảnh sản phẩm bằng link URL hoặc tải ảnh lên.');
+      return;
+    }
+
     try {
       await apiFetch('/api/vendor/products', {
         method: 'POST',
@@ -253,7 +382,7 @@ export function VendorPortal({ token }: VendorPortalProps) {
           benefits: pBenefits.split(',').map((s) => s.trim()).filter(Boolean),
           skinTypes: pSkinTypes.split(',').map((s) => s.trim()).filter(Boolean),
           description: pDesc,
-          images: [pImageUrl],
+          images: finalImages,
           videoUrl: pVideoUrl || undefined,
           isSponsored: pSponsored,
           variants: [
@@ -269,7 +398,11 @@ export function VendorPortal({ token }: VendorPortalProps) {
       setShowProductForm(false);
       setPName('');
       setPSku('');
-      setNotice('Đã tạo sản phẩm và gửi Quản trị viên kiểm duyệt.');
+      setPDesc('');
+      setPVideoUrl('');
+      setPImageLinkInput('');
+      setPImages(['/src/assets/images/product_serum_niacinamide_1795521823722.jpg']);
+      setNotice(`Đã tạo sản phẩm với ${finalImages.length} hình ảnh và gửi Quản trị viên kiểm duyệt.`);
       loadDashboard();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Lỗi tạo sản phẩm.');
@@ -1455,33 +1588,135 @@ export function VendorPortal({ token }: VendorPortalProps) {
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
-                    <div>
-                      <label className="block text-[#6B665E] mb-1">Tải ảnh sản phẩm (Cloudinary / Máy chủ)</label>
-                      <label className="flex items-center gap-2 px-3 py-2 border border-dashed border-zinc-200 rounded-lg cursor-pointer hover:bg-[#FAF8F5]">
-                        <Upload className="w-4 h-4 text-[#C81E3A]" />
-                        <span className="truncate">{pImageUrl}</span>
-                        <input
-                          type="file"
-                          accept="image/jpeg,image/png,image/webp"
-                          className="hidden"
-                          onChange={(e) => {
-                            const f = e.target.files?.[0];
-                            if (f) handleImageFileUpload(f, setPImageUrl);
-                          }}
-                        />
+                  <div className="space-y-3 text-xs border border-zinc-200 rounded-xl p-4 bg-[#FAF8F5]/60">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <label className="font-medium text-[#1A1917] flex items-center gap-1.5">
+                        <ImagePlus className="w-4 h-4 text-[#C81E3A]" />
+                        <span>Hình ảnh sản phẩm ({pImages.length}/10)</span>
                       </label>
+                      <span className="text-[11px] text-[#6B665E]">
+                        Hỗ trợ nhập nhiều link URL hoặc tải nhiều tệp ảnh cùng lúc
+                      </span>
                     </div>
-                    <div>
-                      <label className="block text-[#6B665E] mb-1">Video giới thiệu (URL tùy chọn)</label>
-                      <input
-                        type="url"
-                        value={pVideoUrl}
-                        onChange={(e) => setPVideoUrl(e.target.value)}
-                        placeholder="https://..."
-                        className="w-full px-3 py-2 border border-zinc-200 rounded-lg"
-                      />
+
+                    <div className="grid grid-cols-1 md:grid-cols-12 gap-2.5">
+                      <div className="md:col-span-8 flex gap-2">
+                        <div className="relative flex-1">
+                          <Link2 className="w-3.5 h-3.5 text-[#6B665E] absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                          <input
+                            type="text"
+                            value={pImageLinkInput}
+                            onChange={(e) => {
+                              setPImageLinkInput(e.target.value);
+                              if (pImageError) setPImageError('');
+                            }}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') {
+                                e.preventDefault();
+                                handleAddProductImageLink();
+                              }
+                            }}
+                            placeholder="Dán link hình ảnh (https://...) rồi bấm Thêm link"
+                            className="w-full pl-8 pr-3 py-2 bg-white border border-zinc-200 rounded-lg focus:outline-none focus:border-[#090D16]"
+                          />
+                        </div>
+                        <button
+                          type="button"
+                          onClick={handleAddProductImageLink}
+                          disabled={pImages.length >= 10}
+                          className="px-3.5 py-2 bg-[#090D16] hover:bg-black text-white font-medium rounded-lg whitespace-nowrap disabled:opacity-50"
+                        >
+                          + Thêm link
+                        </button>
+                      </div>
+
+                      <div className="md:col-span-4">
+                        <label className="flex items-center justify-center gap-2 px-3 py-2 bg-white border border-dashed border-zinc-300 rounded-lg cursor-pointer hover:bg-zinc-50 font-medium text-[#1A1917]">
+                          <Upload className="w-4 h-4 text-[#C81E3A] shrink-0" />
+                          <span className="truncate">Tải nhiều ảnh từ máy</span>
+                          <input
+                            type="file"
+                            multiple
+                            accept="image/jpeg,image/png,image/webp"
+                            className="hidden"
+                            onChange={(e) => {
+                              void handleMultipleProductImageUpload(e.target.files);
+                              e.target.value = '';
+                            }}
+                          />
+                        </label>
+                      </div>
                     </div>
+
+                    {pImageError && (
+                      <p className="text-[11px] text-[#C81E3A] font-medium">{pImageError}</p>
+                    )}
+
+                    {pImages.length > 0 ? (
+                      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3 pt-1">
+                        {pImages.map((imgUrl, idx) => (
+                          <div
+                            key={`${imgUrl}-${idx}`}
+                            className={`bg-white border rounded-lg overflow-hidden flex flex-col ${
+                              idx === 0 ? 'border-[#C81E3A]' : 'border-zinc-200'
+                            }`}
+                          >
+                            <div className="relative aspect-square bg-zinc-100 overflow-hidden">
+                              <ResilientImage
+                                src={imgUrl}
+                                alt={`Ảnh sản phẩm ${idx + 1}`}
+                                className="w-full h-full object-cover"
+                              />
+                              {idx === 0 && (
+                                <span className="absolute top-1.5 left-1.5 px-1.5 py-0.5 bg-[#C81E3A] text-white text-[10px] font-medium">
+                                  Ảnh chính
+                                </span>
+                              )}
+                              <button
+                                type="button"
+                                onClick={() => handleRemoveProductImage(idx)}
+                                className="absolute top-1.5 right-1.5 p-1 bg-black/70 hover:bg-[#C81E3A] text-white rounded"
+                                aria-label={`Xóa ảnh ${idx + 1}`}
+                                title="Xóa ảnh"
+                              >
+                                <X className="w-3 h-3" />
+                              </button>
+                            </div>
+                            <div className="p-2 flex items-center justify-between gap-1 text-[10px] border-t border-zinc-100">
+                              <span className="text-[#6B665E] truncate" title={imgUrl}>
+                                {imgUrl.startsWith('http') ? imgUrl.replace(/^https?:\/\//, '') : `Ảnh #${idx + 1}`}
+                              </span>
+                              {idx > 0 && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleSetPrimaryProductImage(idx)}
+                                  className="inline-flex items-center gap-0.5 text-[#090D16] hover:text-[#C81E3A] font-medium shrink-0"
+                                  title="Đặt làm ảnh chính"
+                                >
+                                  <Star className="w-2.5 h-2.5" />
+                                  <span>Chính</span>
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="py-4 text-center text-[11px] text-[#6B665E] border border-dashed border-zinc-200 rounded-lg bg-white">
+                        Chưa có hình ảnh nào. Hãy nhập link URL hoặc tải ảnh từ thiết bị của bạn.
+                      </div>
+                    )}
+                  </div>
+
+                  <div>
+                    <label className="block text-xs text-[#6B665E] mb-1">Video giới thiệu (URL tùy chọn)</label>
+                    <input
+                      type="url"
+                      value={pVideoUrl}
+                      onChange={(e) => setPVideoUrl(e.target.value)}
+                      placeholder="https://..."
+                      className="w-full px-3 py-2 text-xs border border-zinc-200 rounded-lg"
+                    />
                   </div>
 
                   <div>
@@ -1545,6 +1780,7 @@ export function VendorPortal({ token }: VendorPortalProps) {
                                 <div className="font-semibold text-[#1A1917]">{p.name}</div>
                                 <div className="text-[#6B665E]">
                                   {p.brandName} · {p.categoryName}
+                                  {p.images.length > 1 ? ` · ${p.images.length} ảnh` : ''}
                                   {p.isSponsored ? ' · Đang quảng bá' : ''}
                                 </div>
                               </div>
