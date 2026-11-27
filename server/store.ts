@@ -1,3 +1,4 @@
+import dns from 'dns';
 import fs from 'fs';
 import path from 'path';
 import { MongoClient, type Db } from 'mongodb';
@@ -799,6 +800,13 @@ class MarketplaceStore {
     const uri = process.env.MONGODB_URI?.trim();
     if (uri) {
       try {
+        if (uri.startsWith('mongodb+srv:')) {
+          try {
+            dns.setServers(['8.8.8.8', '1.1.1.1']);
+          } catch {
+            // ignore if environment restricts custom dns
+          }
+        }
         this.mongoClient = new MongoClient(uri, { serverSelectionTimeoutMS: 5000 });
         await this.mongoClient.connect();
         this.mongoDb = this.mongoClient.db('vera_beauty');

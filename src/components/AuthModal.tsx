@@ -145,9 +145,8 @@ export function AuthModal({
                 setTab('login');
                 setError('');
               }}
-              className={`py-2 text-xs font-medium transition-colors whitespace-nowrap ${
-                tab === 'login' ? 'bg-[#090D16] text-white' : 'text-zinc-600 hover:text-[#090D16]'
-              }`}
+              className={`py-2 text-xs font-medium transition-colors whitespace-nowrap ${tab === 'login' ? 'bg-[#090D16] text-white' : 'text-zinc-600 hover:text-[#090D16]'
+                }`}
             >
               Đăng nhập
             </button>
@@ -157,9 +156,8 @@ export function AuthModal({
                 setTab('register');
                 setError('');
               }}
-              className={`py-2 text-xs font-medium transition-colors whitespace-nowrap border-l border-[#CFD4DC] ${
-                tab === 'register' ? 'bg-[#090D16] text-white' : 'text-zinc-600 hover:text-[#090D16]'
-              }`}
+              className={`py-2 text-xs font-medium transition-colors whitespace-nowrap border-l border-[#CFD4DC] ${tab === 'register' ? 'bg-[#090D16] text-white' : 'text-zinc-600 hover:text-[#090D16]'
+                }`}
             >
               Đăng ký
             </button>
@@ -205,11 +203,11 @@ export function AuthModal({
                 {loading ? 'Đang xử lý...' : 'Đăng nhập'}
               </button>
 
-              <p className="text-[11px] text-zinc-500 leading-relaxed">
+              {/* <p className="text-[11px] text-zinc-500 leading-relaxed">
                 Đăng nhập chung bằng Email và Mật khẩu. Quyền Quản trị sàn sẽ tự động kích hoạt đối với tài khoản có vai trò Quản trị viên.
-              </p>
+              </p> */}
 
-              <div className="pt-4 border-t border-[#CFD4DC] space-y-2">
+              {/* <div className="pt-4 border-t border-[#CFD4DC] space-y-2">
                 <p className="text-xs text-zinc-500">Điền nhanh tài khoản trải nghiệm:</p>
                 <div className="grid grid-cols-2 gap-2">
                   <button
@@ -233,7 +231,7 @@ export function AuthModal({
                     Nhà bán hàng mẫu
                   </button>
                 </div>
-              </div>
+              </div> */}
 
               {requiresAdminClaim && (
                 <div className="pt-3 border-t border-dashed border-[#CFD4DC]">
